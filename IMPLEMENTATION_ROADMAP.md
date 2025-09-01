@@ -4,6 +4,11 @@
 
 The media-sync project is now fully prepared for Test-Driven Development with GitHub Flow integration. Each TDD cycle corresponds to a feature branch and PR for continuous code review.
 
+## Prerequisites
+- Use Serena MCP for project memory and semantic code understanding
+- Use Context7 MCP for library documentation and best practices
+- Investigate optimized coding patterns with Context7 before implementation
+
 ## GitHub Flow + TDD Process
 
 ```bash
@@ -11,8 +16,8 @@ The media-sync project is now fully prepared for Test-Driven Development with Gi
 1. Pull latest from main
 2. Create feature branch
 3. Write failing test (RED)
-4. Push and create draft PR
-5. Implement minimal solution (GREEN)
+4. Implement minimal solution (GREEN)
+5. Refactor GREEN code (REFACTOR)
 6. Push and request review
 7. STOP AND WAIT FOR REVIEW
 8. After approval: Refactor if needed
@@ -25,33 +30,33 @@ git checkout main
 git pull origin main
 
 # Step 2: Create feature branch
-git checkout -b feature/storage-layer
+git checkout -b feature/[cycle]
 
 # Step 3: RED Phase - Write failing test
 make tdd-red    # Write failing test
-git add . && git commit -m "test: Add failing test for storage layer"
-git push -u origin feature/storage-layer
-gh pr create --draft --title "feat: Storage layer" --body "TDD Cycle: RED phase"
+git add . && git commit -m "test: Add failing test for [feature]"
 
 # Step 4: GREEN Phase - Minimal implementation  
 make tdd-green  # Minimal implementation to pass tests
-git add . && git commit -m "feat: Implement storage layer (GREEN)"
-git push
-gh pr ready # Mark PR as ready for review
+git add . && git commit -m "feat: Implement [feature] to pass tests"
 
-# Step 5: ⏸️ STOP - Wait for review
+# Step 5: REFACTOR Phase - Improve code quality
+make tdd-refactor # Refactoring
+git add . && git commit -m "refactor: Improve [feature] implementation"
+
+# Step 6: Push and create PR
+git push -u origin feature/[cycle]
+gh pr create --title "feat: [Feature Name]" --body "TDD implementation for [feature]"
+# Or use: git commit (for automated commit message generation)
+
+# Step 7: ⏸️ STOP - Wait for review
 echo "Waiting for PR review and approval..."
 # Do NOT proceed to next cycle until review is complete
 
-# Step 6: After review approval
-make tdd-refactor # Apply review feedback and improve
-git add . && git commit -m "refactor: Apply review feedback"
-git push
-
-# Step 7: Merge PR (after final approval)
+# Step 8: Merge PR (after final approval)
 gh pr merge --squash
 
-# Step 8: Before starting next cycle
+# Step 9: Before starting next cycle
 git checkout main
 git pull origin main
 # Now ready for next TDD cycle
@@ -530,6 +535,18 @@ The TDD implementation is successful when:
 - Performance meets requirements (configurable)
 - Code maintainability score >= 8/10
 
+## Future Extensions & Architectural Decisions
+
+### Process Logging & Observability
+- **InfluxDB Integration**: Time-series process logging for sync operations, performance metrics, and operational analytics
+- **Structured Logging**: Comprehensive logging strategy with metric collection for sync performance monitoring
+- **Observability Stack**: InfluxDB for metrics storage with potential Grafana integration for dashboards
+
+### Plugin Ecosystem Extensions
+- **Additional Input Services**: Instagram, Twitter/X, Flickr, Google Photos integration
+- **Cloud Storage Outputs**: AWS S3, Google Cloud Storage, Azure Blob integration
+- **Transform Services**: Image processing, metadata enrichment, content filtering
+
 ## Next Steps
 
 1. **Immediate** (Today):
@@ -541,7 +558,7 @@ The TDD implementation is successful when:
 2. **This Week**:
    - Complete core interfaces
    - Implement basic configuration system
-   - Set up database layer
+   - Set up database layer with SQLite
    - Establish TDD rhythm
 
 3. **Next Week**:
