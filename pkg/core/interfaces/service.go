@@ -12,7 +12,7 @@ type Service interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 	Health() ServiceHealth
-	
+
 	// Plugin information
 	Info() ServiceInfo
 	Capabilities() []Capability
@@ -49,9 +49,9 @@ type TransformService interface {
 
 // ServiceHealth represents the health status of a service
 type ServiceHealth struct {
-	Status    HealthStatus `json:"status"`
-	Message   string       `json:"message"`
-	Timestamp time.Time    `json:"timestamp"`
+	Status    HealthStatus           `json:"status"`
+	Message   string                 `json:"message"`
+	Timestamp time.Time              `json:"timestamp"`
 	Details   map[string]interface{} `json:"details,omitempty"`
 }
 
