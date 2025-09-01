@@ -8,29 +8,53 @@ The media-sync project is now fully prepared for Test-Driven Development with Gi
 
 ```bash
 # For each TDD cycle:
-1. Create feature branch
-2. Write failing test (RED)
-3. Push and create draft PR
-4. Implement minimal solution (GREEN)
-5. Push and request review
-6. Refactor and finalize (REFACTOR)
-7. Merge PR after approval
+1. Pull latest from main
+2. Create feature branch
+3. Write failing test (RED)
+4. Push and create draft PR
+5. Implement minimal solution (GREEN)
+6. Push and request review
+7. STOP AND WAIT FOR REVIEW
+8. After approval: Refactor if needed
+9. Merge PR
+10. Pull latest main before next cycle
 
-# Quick Start
-git checkout -b feature/core-interfaces
+# Complete TDD Cycle Example
+# Step 1: Start from latest main
+git checkout main
+git pull origin main
+
+# Step 2: Create feature branch
+git checkout -b feature/storage-layer
+
+# Step 3: RED Phase - Write failing test
 make tdd-red    # Write failing test
-git add . && git commit -m "test: Add failing test for [feature]"
-git push -u origin feature/core-interfaces
-gh pr create --draft --title "feat: [Feature Name]" --body "TDD Cycle: RED phase"
+git add . && git commit -m "test: Add failing test for storage layer"
+git push -u origin feature/storage-layer
+gh pr create --draft --title "feat: Storage layer" --body "TDD Cycle: RED phase"
 
-make tdd-green  # Minimal implementation  
-git add . && git commit -m "feat: Implement [feature] (GREEN)"
+# Step 4: GREEN Phase - Minimal implementation  
+make tdd-green  # Minimal implementation to pass tests
+git add . && git commit -m "feat: Implement storage layer (GREEN)"
 git push
 gh pr ready # Mark PR as ready for review
 
-make tdd-refactor # Improve code quality
-git add . && git commit -m "refactor: Improve [feature] implementation"
+# Step 5: ⏸️ STOP - Wait for review
+echo "Waiting for PR review and approval..."
+# Do NOT proceed to next cycle until review is complete
+
+# Step 6: After review approval
+make tdd-refactor # Apply review feedback and improve
+git add . && git commit -m "refactor: Apply review feedback"
 git push
+
+# Step 7: Merge PR (after final approval)
+gh pr merge --squash
+
+# Step 8: Before starting next cycle
+git checkout main
+git pull origin main
+# Now ready for next TDD cycle
 ```
 
 ## Phase 1: Foundation Layer (Weeks 1-2)
