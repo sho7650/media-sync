@@ -94,7 +94,7 @@ func (m *ValidatedMediaItem) Validate() error {
 func TestConfigLoader_HotReload_DetectsFileChanges(t *testing.T) {
 	// Create temporary config file
 	tempFile := createTempConfigFile(t, initialConfig)
-	defer os.Remove(tempFile)
+	defer func() { _ = os.Remove(tempFile) }()
 
 	loader := NewConfigLoader()
 	changeChan := make(chan ConfigChange, 1)
@@ -103,7 +103,7 @@ func TestConfigLoader_HotReload_DetectsFileChanges(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go loader.WatchForChanges(ctx, tempFile, changeChan)
+	go func() { _ = loader.WatchForChanges(ctx, tempFile, changeChan) }()
 
 	// Wait a moment for watcher to start
 	time.Sleep(100 * time.Millisecond)
@@ -125,7 +125,6 @@ func TestConfigLoader_HotReload_DetectsFileChanges(t *testing.T) {
 
 // Supporting types and functions for config testing
 type ConfigLoader struct {
-	watchers map[string]*fsWatcher
 }
 
 type ConfigChange struct {
@@ -225,7 +224,7 @@ func (s *SQLiteStore) CreateMedia(ctx context.Context, media MediaItem) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback() // Safe to call even if committed
+	defer func() { _ = tx.Rollback() }() // Safe to call even if committed
 
 	query := `
 		INSERT INTO media (id, url, content_type, metadata, created_at)
@@ -300,7 +299,7 @@ settings:
 	defer cancel()
 
 	// Start plugin manager
-	go manager.WatchPlugins(ctx, pluginDir, eventChan)
+	go func() { _ = manager.WatchPlugins(ctx, pluginDir, eventChan) }()
 
 	// Wait for initial load
 	select {
@@ -346,8 +345,6 @@ settings:
 
 // Plugin system types
 type PluginManager struct {
-	plugins  map[string]*Plugin
-	watchers map[string]*pluginWatcher
 }
 
 type Plugin struct {
@@ -411,7 +408,7 @@ func TestTumblrInputPlugin_FetchMedia_WithMockServer(t *testing.T) {
 					},
 				},
 			}
-			json.NewEncoder(w).Encode(response)
+			_ = json.NewEncoder(w).Encode(response)
 
 		case "/oauth/access_token":
 			w.Header().Set("Content-Type", "application/json")
@@ -419,7 +416,7 @@ func TestTumblrInputPlugin_FetchMedia_WithMockServer(t *testing.T) {
 				"access_token": "test-access-token",
 				"token_type":   "bearer",
 			}
-			json.NewEncoder(w).Encode(response)
+			_ = json.NewEncoder(w).Encode(response)
 
 		default:
 			http.NotFound(w, r)
@@ -517,7 +514,7 @@ func (p *TumblrInputPlugin) FetchMedia(ctx context.Context, config map[string]in
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var apiResp TumblrAPIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
@@ -607,7 +604,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		db.Close()
+		_ = db.Close()
 	})
 
 	return db
@@ -638,5 +635,4 @@ func (p *PluginManager) WatchPlugins(ctx context.Context, dir string, ch chan<- 
 }
 func (p *PluginManager) GetPlugin(name string) (*Plugin, bool) { return nil, false }
 
-type fsWatcher struct{}
-type pluginWatcher struct{}
+
