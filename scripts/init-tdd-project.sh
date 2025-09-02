@@ -7,7 +7,7 @@ set -e
 
 PROJECT_NAME="media-sync"
 PROJECT_ROOT="/Users/sho/working/golang/work/media-sync"
-GITHUB_USERNAME="${GITHUB_USERNAME:-sho}"  # Set your GitHub username
+GITHUB_USERNAME="${GITHUB_USERNAME:-sho7650}"  # Set your GitHub username
 
 echo "🚀 Initializing TDD environment for ${PROJECT_NAME}"
 
@@ -73,7 +73,7 @@ linters-settings:
   gofmt:
     simplify: true
   goimports:
-    local-prefixes: github.com/sho/media-sync
+    local-prefixes: github.com/sho7650/media-sync
   gomnd:
     settings:
       mnd:
@@ -558,7 +558,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/sho/media-sync/internal/core"
+	"github.com/sho7650/media-sync/internal/core"
 )
 
 func main() {
@@ -819,7 +819,7 @@ A Go-based media synchronization platform with plugin-based architecture, built 
 ### Setup Development Environment
 ```bash
 # Clone and setup
-git clone https://github.com/sho/media-sync.git
+git clone https://github.com/sho7650/media-sync.git
 cd media-sync
 
 # Initialize TDD environment (if using the init script)
