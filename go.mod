@@ -1,4 +1,4 @@
-module github.com/sho/media-sync
+module github.com/sho7650/media-sync
 
 go 1.25.0
 

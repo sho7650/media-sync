@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sho/media-sync/pkg/core/interfaces"
+	"github.com/sho7650/media-sync/pkg/core/interfaces"
 )
 
 func TestPlugin_InterfaceCompliance(t *testing.T) {

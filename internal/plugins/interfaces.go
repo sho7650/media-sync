@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sho/media-sync/pkg/core/interfaces"
+	"github.com/sho7650/media-sync/pkg/core/interfaces"
 )
 
 // Plugin interface extending core.Service
