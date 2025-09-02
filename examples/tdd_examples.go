@@ -403,9 +403,9 @@ func TestTumblrInputPlugin_FetchMedia_WithMockServer(t *testing.T) {
 							Timestamp: time.Now().Unix(),
 						},
 						{
-							ID:   "12346",
-							Type: "video",
-							VideoURL: "https://example.com/video1.mp4",
+							ID:        "12346",
+							Type:      "video",
+							VideoURL:  "https://example.com/video1.mp4",
 							Timestamp: time.Now().Unix(),
 						},
 					},
@@ -620,7 +620,7 @@ func createTempConfigFile(t *testing.T, content string) string {
 
 	_, err = tmpfile.Write([]byte(content))
 	require.NoError(t, err)
-	
+
 	err = tmpfile.Close()
 	require.NoError(t, err)
 
@@ -628,10 +628,14 @@ func createTempConfigFile(t *testing.T, content string) string {
 }
 
 // Placeholder implementations for interfaces referenced in tests
-func NewConfigLoader() *ConfigLoader           { return &ConfigLoader{} }
-func NewPluginManager() *PluginManager         { return &PluginManager{} }
-func (c *ConfigLoader) WatchForChanges(ctx context.Context, file string, ch chan<- ConfigChange) error { return nil }
-func (p *PluginManager) WatchPlugins(ctx context.Context, dir string, ch chan<- PluginEvent) error { return nil }
+func NewConfigLoader() *ConfigLoader   { return &ConfigLoader{} }
+func NewPluginManager() *PluginManager { return &PluginManager{} }
+func (c *ConfigLoader) WatchForChanges(ctx context.Context, file string, ch chan<- ConfigChange) error {
+	return nil
+}
+func (p *PluginManager) WatchPlugins(ctx context.Context, dir string, ch chan<- PluginEvent) error {
+	return nil
+}
 func (p *PluginManager) GetPlugin(name string) (*Plugin, bool) { return nil, false }
 
 type fsWatcher struct{}
