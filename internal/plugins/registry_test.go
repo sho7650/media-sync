@@ -1,13 +1,10 @@
 package plugins
 
 import (
-	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sho7650/media-sync/pkg/core/interfaces"
@@ -231,60 +228,4 @@ func TestPluginRegistry_ConcurrentAccess(t *testing.T) {
 	// Verify all plugins were registered
 	plugins := registry.ListPlugins()
 	assert.Len(t, plugins, numGoroutines)
-}
-
-// Mock plugin for testing
-type mockPlugin struct {
-	mock.Mock
-	metadata PluginMetadata
-}
-
-func (m *mockPlugin) GetMetadata() PluginMetadata {
-	return m.metadata
-}
-
-func (m *mockPlugin) Configure(config map[string]interface{}) error {
-	args := m.Called(config)
-	return args.Error(0)
-}
-
-func (m *mockPlugin) Start(ctx context.Context) error {
-	args := m.Called(ctx)
-	return args.Error(0)
-}
-
-func (m *mockPlugin) Stop(ctx context.Context) error {
-	args := m.Called(ctx)
-	return args.Error(0)
-}
-
-func (m *mockPlugin) HealthCheck(ctx context.Context) interfaces.ServiceHealth {
-	args := m.Called(ctx)
-	return args.Get(0).(interfaces.ServiceHealth)
-}
-
-func (m *mockPlugin) Info() interfaces.ServiceInfo {
-	return interfaces.ServiceInfo{
-		Name:        "Mock Plugin",
-		Version:     "1.0.0", 
-		Description: "Test plugin",
-	}
-}
-
-func (m *mockPlugin) Capabilities() []interfaces.Capability {
-	return []interfaces.Capability{
-		{
-			Type:      "media-fetch",
-			Supported: true,
-			Config:    map[string]interface{}{"batch_size": 10},
-		},
-	}
-}
-
-func (m *mockPlugin) Health() interfaces.ServiceHealth {
-	return interfaces.ServiceHealth{
-		Status:    "healthy",
-		Timestamp: time.Now(),
-		Details:   map[string]interface{}{"uptime": "24h"},
-	}
 }

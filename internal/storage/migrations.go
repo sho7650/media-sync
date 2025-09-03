@@ -128,7 +128,13 @@ func (mm *MigrationManager) ApplyMigration(ctx context.Context, migration Migrat
 	if err != nil {
 		return fmt.Errorf("failed to start transaction: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			// sql.ErrTxDone means transaction was already committed (normal case)
+			// Rollback failures in migrations are typically not recoverable
+			_ = err // Explicitly acknowledge we're ignoring this error
+		}
+	}()
 
 	// Execute the migration
 	_, err = tx.ExecContext(ctx, migration.Up)
@@ -177,7 +183,13 @@ func (mm *MigrationManager) RollbackMigration(ctx context.Context, version int) 
 	if err != nil {
 		return fmt.Errorf("failed to start rollback transaction: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			// sql.ErrTxDone means transaction was already committed (normal case)
+			// Rollback failures in migrations are typically not recoverable
+			_ = err // Explicitly acknowledge we're ignoring this error
+		}
+	}()
 
 	// Remove from tracking first
 	_, err = tx.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = ?`, version)
@@ -201,7 +213,12 @@ func (mm *MigrationManager) ListAppliedMigrations(ctx context.Context) ([]Migrat
 	if err != nil {
 		return nil, fmt.Errorf("failed to list migrations: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			// Database row close errors are typically not critical
+			_ = err // Explicitly acknowledge we're ignoring this error
+		}
+	}()
 
 	var migrations []Migration
 	for rows.Next() {
