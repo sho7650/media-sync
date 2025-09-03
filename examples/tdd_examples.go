@@ -94,7 +94,11 @@ func (m *ValidatedMediaItem) Validate() error {
 func TestConfigLoader_HotReload_DetectsFileChanges(t *testing.T) {
 	// Create temporary config file
 	tempFile := createTempConfigFile(t, initialConfig)
-	defer func() { _ = os.Remove(tempFile) }()
+	t.Cleanup(func() {
+		if err := os.Remove(tempFile); err != nil {
+			t.Logf("failed to remove temp file: %v", err)
+		}
+	})
 
 	loader := NewConfigLoader()
 	changeChan := make(chan ConfigChange, 1)
@@ -514,7 +518,12 @@ func (p *TumblrInputPlugin) FetchMedia(ctx context.Context, config map[string]in
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			// HTTP response cleanup - errors are typically not critical
+			_ = err // Explicitly acknowledge we're ignoring this error
+		}
+	}()
 
 	var apiResp TumblrAPIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
@@ -604,7 +613,9 @@ func setupTestDB(t *testing.T) *sql.DB {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_ = db.Close()
+		if err := db.Close(); err != nil {
+			t.Logf("failed to close test database: %v", err)
+		}
 	})
 
 	return db
