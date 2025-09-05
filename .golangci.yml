@@ -1,0 +1,359 @@
+# Go linting configuration for TDD Hot Reload Development
+# Optimized for parallel development and high code quality
+
+run:
+  timeout: 10m
+  tests: true
+  build-tags:
+    - integration
+    - hotreload
+  skip-dirs:
+    - vendor
+    - .git
+    - bin
+    - tmp
+  skip-files:
+    - ".*\\.pb\\.go$"
+    - ".*_mock\\.go$"
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  uniq-by-line: true
+  path-prefix: ""
+  sort-results: true
+
+linters-settings:
+  # Cyclomatic complexity
+  cyclop:
+    max-complexity: 15
+    package-average: 10.0
+    
+  # Duplication detection  
+  dupl:
+    threshold: 100
+    
+  # Function length
+  funlen:
+    lines: 100
+    statements: 50
+    
+  # Cognitive complexity
+  gocognit:
+    min-complexity: 20
+    
+  # Cyclomatic complexity (alternative)
+  gocyclo:
+    min-complexity: 15
+    
+  # Import grouping and formatting
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(github.com/sho7650/media-sync)
+    skip-generated: true
+    
+  # Import restrictions
+  depguard:
+    rules:
+      main:
+        files:
+          - $all
+        allow:
+          - $gostd
+          - github.com/stretchr/testify
+          - github.com/fsnotify/fsnotify
+          - github.com/mattn/go-sqlite3
+          - gopkg.in/yaml.v3
+        deny:
+          - pkg: "github.com/pkg/errors"
+            desc: "Use standard library errors package"
+          - pkg: "log"
+            desc: "Use structured logging instead"
+            
+  # Code formatting
+  gofmt:
+    simplify: true
+    
+  gofumpt:
+    extra-rules: true
+    
+  # Import formatting
+  goimports:
+    local-prefixes: github.com/sho7650/media-sync
+    
+  # Unused code detection
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+    ignore-tests: false
+    
+  # Unused parameters
+  unparam:
+    check-exported: true
+    
+  # Unused variables
+  unused:
+    check-exported: false
+    
+  # Variable naming
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+      - style
+      - experimental
+    disabled-checks:
+      - commentedOutCode
+      - ifElseChain
+      - singleCaseSwitch
+    settings:
+      captLocal:
+        paramsOnly: true
+      underef:
+        skipRecvDeref: true
+        
+  # Line length
+  lll:
+    line-length: 120
+    tab-width: 4
+    
+  # Magic numbers
+  gomnd:
+    checks:
+      - argument
+      - case
+      - condition
+      - return
+    ignored-numbers: 0,1,2,3
+    ignored-functions: make,len,cap,append
+    
+  # Nil checks
+  nilnil:
+    checked-types:
+      - ptr
+      - func
+      - iface
+      - map
+      - chan
+      
+  # Struct tags
+  govet:
+    check-shadowing: true
+    fieldalignment: true
+    enable:
+      - assign
+      - atomic
+      - atomicalign
+      - bools
+      - buildtag
+      - cgocall
+      - composites
+      - copylocks
+      - errorsas
+      - fieldalignment
+      - httpresponse
+      - ifaceassert
+      - loopclosure
+      - lostcancel
+      - nilfunc
+      - printf
+      - shift
+      - stdmethods
+      - stringintconv
+      - structtag
+      - testinggoroutine
+      - tests
+      - unmarshal
+      - unreachable
+      - unsafeptr
+      - unusedresult
+      
+  # Error handling
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+    ignore: fmt:.*,io/ioutil:^Read.*
+    exclude-functions:
+      - io/ioutil.ReadFile
+      - io.Copy(*bytes.Buffer)
+      - io.Copy(os.Stdout)
+      
+  # Error wrapping
+  errorlint:
+    errorf: true
+    asserts: true
+    comparison: true
+    
+  # Test-related
+  testpackage:
+    skip-regexp: (export|internal)_test\.go
+    
+  # Performance
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: false
+    
+  # Security
+  gosec:
+    severity: medium
+    confidence: medium
+    excludes:
+      - G104 # Unhandled errors (covered by errcheck)
+    config:
+      G306: "0644" # File permissions
+      
+  # Hot reload specific linting
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: empty-block
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: if-return
+      - name: increment-decrement
+      - name: indent-error-flow
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: redefines-builtin-id
+      - name: superfluous-else
+      - name: time-naming
+      - name: unexported-return
+      - name: unhandled-error
+      - name: unnecessary-stmt
+      - name: unreachable-code
+      - name: unused-parameter
+      - name: var-declaration
+      - name: var-naming
+
+linters:
+  enable:
+    # Enabled by default
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    
+    # Additional quality linters
+    - bodyclose
+    - cyclop
+    - dupl
+    - errname
+    - errorlint
+    - exhaustive
+    - exportloopref
+    - forbidigo
+    - funlen
+    - gci
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - godox
+    - gofmt
+    - gofumpt
+    - goimports
+    - gomnd
+    - goprintffuncname
+    - gosec
+    - lll
+    - makezero
+    - misspell
+    - nakedret
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - prealloc
+    - predeclared
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - stylecheck
+    - testpackage
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - wastedassign
+    - whitespace
+    
+  disable:
+    - gochecknoinits  # Init functions allowed for plugin registration
+    - gochecknoglobals  # Some globals needed for plugin system
+    - wrapcheck  # Too strict for internal packages
+    - exhaustivestruct  # Too restrictive for config structs
+    - paralleltest  # Not all tests can be parallel
+    - varnamelen  # Allow short variable names in context
+    - gomoddirectives  # Allow replace directives for development
+    - gomodguard  # Handled by depguard instead
+    
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 10
+  new: false
+  
+  exclude:
+    # Exclude some staticcheck messages
+    - "SA9003:"
+    - "SA6002:"
+    
+  exclude-rules:
+    # Exclude lll for long lines in tests
+    - path: _test\.go
+      linters:
+        - lll
+        - funlen
+        - dupl
+        - gomnd
+        
+    # Allow unused parameters in interfaces
+    - path: interfaces\.go
+      linters:
+        - unused
+        - unparam
+        
+    # Allow blank imports in main.go for init side effects
+    - path: main\.go
+      linters:
+        - goimports
+        
+    # Hot reload specific exclusions
+    - path: internal/plugins/hotreload.*\.go
+      linters:
+        - gocyclo  # File watching logic can be complex
+        - funlen   # Event processing functions may be long
+        
+    # Test files can have longer functions
+    - path: .*_test\.go
+      text: "Function 'Test.*' is too long"
+      linters:
+        - funlen
+        
+    # Allow magic numbers in test files
+    - path: .*_test\.go
+      linters:
+        - gomnd
+        
+    # Integration tests may need globals
+    - path: tests/integration/.*\.go
+      linters:
+        - gochecknoglobals
+        
+    # Mock files are generated
+    - path: .*_mock\.go
+      linters:
+        - all
+        
+  fix: false

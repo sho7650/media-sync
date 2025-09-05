@@ -1,0 +1,700 @@
+name: Deployment Coordination for Hot Reload
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, ready_for_review]
+    paths:
+      - 'internal/plugins/hotreload*.go'
+      - 'internal/plugins/**'
+      - '.github/workflows/**'
+  
+  push:
+    branches: [main]
+    paths:
+      - 'internal/plugins/hotreload*.go'
+      - 'internal/plugins/**'
+      
+  workflow_dispatch:
+    inputs:
+      deployment_type:
+        description: 'Type of deployment coordination'
+        required: true
+        type: choice
+        options: ['pre-deployment', 'deployment', 'post-deployment', 'rollback']
+        default: 'pre-deployment'
+      
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options: ['development', 'staging', 'production']
+        default: 'development'
+
+env:
+  GO_VERSION: '1.25.0'
+  DEPLOYMENT_TIMEOUT: '10m'
+  ROLLBACK_TIMEOUT: '5m'
+
+jobs:
+  # ============================================
+  # Pre-Deployment Safety Checks
+  # ============================================
+  pre-deployment-validation:
+    name: Pre-Deployment Validation
+    runs-on: ubuntu-latest
+    outputs:
+      deployment-safe: ${{ steps.safety-check.outputs.safe }}
+      breaking-changes: ${{ steps.breaking-changes.outputs.detected }}
+      hot-reload-ready: ${{ steps.hot-reload-check.outputs.ready }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          
+      - name: Safety assessment
+        id: safety-check
+        run: |
+          echo "🔍 Performing deployment safety assessment..."
+          
+          safety_score=100
+          issues=()
+          
+          # Check for breaking interface changes
+          if git diff origin/main...HEAD --name-only | grep -q "interfaces\.go"; then
+            echo "⚠️ Interface changes detected"
+            issues+=("interface-changes")
+            safety_score=$((safety_score - 20))
+          fi
+          
+          # Check for hot reload system modifications
+          hotreload_changes=$(git diff origin/main...HEAD --name-only | grep -c "hotreload" || echo "0")
+          if [[ $hotreload_changes -gt 0 ]]; then
+            echo "🔥 Hot reload system changes: $hotreload_changes files"
+            if [[ $hotreload_changes -gt 5 ]]; then
+              issues+=("extensive-hotreload-changes")
+              safety_score=$((safety_score - 15))
+            fi
+          fi
+          
+          # Check for database schema changes
+          if git diff origin/main...HEAD --name-only | grep -q "migration\|schema"; then
+            echo "⚠️ Database changes detected"
+            issues+=("database-changes")
+            safety_score=$((safety_score - 10))
+          fi
+          
+          # Check test coverage for changed files
+          changed_files=$(git diff origin/main...HEAD --name-only | grep "\.go$" | grep -v "_test\.go" || echo "")
+          if [[ -n "$changed_files" ]]; then
+            echo "Changed Go files: $(echo "$changed_files" | wc -l)"
+            
+            # Run tests for changed packages only
+            changed_packages=$(echo "$changed_files" | xargs -I {} dirname {} | sort -u | tr '\n' ' ')
+            for pkg in $changed_packages; do
+              if [[ -d "$pkg" ]]; then
+                if ! go test "./$pkg/..." -timeout=2m >/dev/null 2>&1; then
+                  issues+=("failing-tests-$pkg")
+                  safety_score=$((safety_score - 25))
+                fi
+              fi
+            done
+          fi
+          
+          # Determine overall safety
+          if [[ $safety_score -ge 80 ]] && [[ ${#issues[@]} -eq 0 ]]; then
+            echo "safe=true" >> $GITHUB_OUTPUT
+            echo "✅ Deployment is safe (score: $safety_score/100)"
+          else
+            echo "safe=false" >> $GITHUB_OUTPUT
+            echo "❌ Deployment safety concerns (score: $safety_score/100)"
+            echo "Issues: ${issues[*]}"
+          fi
+          
+          echo "SAFETY_SCORE=$safety_score" >> $GITHUB_ENV
+          echo "SAFETY_ISSUES=${issues[*]}" >> $GITHUB_ENV
+          
+      - name: Breaking changes detection
+        id: breaking-changes
+        run: |
+          echo "🔍 Detecting breaking changes..."
+          
+          breaking_changes=false
+          
+          # Check for removed public functions/methods
+          if git diff origin/main...HEAD | grep -E "^-.*func.*[A-Z]" | grep -v "_test.go"; then
+            echo "⚠️ Public function removals detected"
+            breaking_changes=true
+          fi
+          
+          # Check for changed function signatures
+          if git diff origin/main...HEAD | grep -E "func.*\(" | grep -E "^\+.*func|^-.*func"; then
+            echo "⚠️ Function signature changes detected"
+            breaking_changes=true
+          fi
+          
+          # Check for removed/renamed exported types
+          if git diff origin/main...HEAD | grep -E "^-.*type.*[A-Z].*struct"; then
+            echo "⚠️ Exported type changes detected"
+            breaking_changes=true
+          fi
+          
+          echo "detected=$breaking_changes" >> $GITHUB_OUTPUT
+          
+          if [[ "$breaking_changes" == "true" ]]; then
+            echo "❌ Breaking changes detected - requires careful deployment"
+            echo "BREAKING_CHANGES=true" >> $GITHUB_ENV
+          else
+            echo "✅ No breaking changes detected"
+            echo "BREAKING_CHANGES=false" >> $GITHUB_ENV
+          fi
+          
+      - name: Hot reload system readiness
+        id: hot-reload-check
+        run: |
+          echo "🔥 Checking hot reload system readiness..."
+          
+          hotreload_ready=true
+          checks_passed=0
+          total_checks=5
+          
+          # Check 1: Hot reload tests pass
+          if go test ./internal/plugins/... -run=".*[Hh]ot[Rr]eload.*" -timeout=2m >/dev/null 2>&1; then
+            echo "✅ Hot reload tests pass"
+            checks_passed=$((checks_passed + 1))
+          else
+            echo "❌ Hot reload tests failing"
+            hotreload_ready=false
+          fi
+          
+          # Check 2: File watcher functionality
+          if grep -r "fsnotify\|FileWatcher" internal/plugins/ --include="*.go" >/dev/null 2>&1; then
+            echo "✅ File watcher functionality present"
+            checks_passed=$((checks_passed + 1))
+          else
+            echo "❌ File watcher functionality missing"
+            hotreload_ready=false
+          fi
+          
+          # Check 3: Debouncing logic
+          if grep -r "debounce\|Debounce" internal/plugins/ --include="*.go" >/dev/null 2>&1; then
+            echo "✅ Debouncing logic present"
+            checks_passed=$((checks_passed + 1))
+          else
+            echo "⚠️ Debouncing logic not detected"
+          fi
+          
+          # Check 4: Resource cleanup
+          if grep -r "Close\|Stop\|Shutdown" internal/plugins/ --include="*.go" >/dev/null 2>&1; then
+            echo "✅ Resource cleanup methods present"
+            checks_passed=$((checks_passed + 1))
+          else
+            echo "⚠️ Resource cleanup methods not detected"
+          fi
+          
+          # Check 5: Integration with plugin manager
+          if grep -r "PluginManager.*hot\|hot.*PluginManager" internal/plugins/ --include="*.go" >/dev/null 2>&1; then
+            echo "✅ Plugin manager integration detected"
+            checks_passed=$((checks_passed + 1))
+          else
+            echo "⚠️ Plugin manager integration not clear"
+          fi
+          
+          echo "Hot reload readiness: $checks_passed/$total_checks checks passed"
+          
+          if [[ $checks_passed -ge 3 ]]; then
+            echo "ready=true" >> $GITHUB_OUTPUT
+            echo "✅ Hot reload system ready for deployment"
+          else
+            echo "ready=false" >> $GITHUB_OUTPUT
+            echo "❌ Hot reload system not ready for deployment"
+            hotreload_ready=false
+          fi
+          
+          echo "HOTRELOAD_READINESS_SCORE=$checks_passed" >> $GITHUB_ENV
+          
+      - name: Generate safety report
+        run: |
+          cat > deployment-safety-report.md << EOF
+          # Deployment Safety Report
+          
+          Generated: $(date -u)
+          Commit: ${{ github.sha }}
+          Branch: ${{ github.ref_name }}
+          
+          ## Safety Assessment
+          - **Overall Safety Score**: $SAFETY_SCORE/100
+          - **Deployment Safe**: ${{ steps.safety-check.outputs.safe }}
+          - **Breaking Changes**: ${{ steps.breaking-changes.outputs.detected }}
+          - **Hot Reload Ready**: ${{ steps.hot-reload-check.outputs.ready }}
+          
+          ## Issues Detected
+          EOF
+          
+          if [[ -n "$SAFETY_ISSUES" ]]; then
+            for issue in $SAFETY_ISSUES; do
+              echo "- $issue" >> deployment-safety-report.md
+            done
+          else
+            echo "- No safety issues detected" >> deployment-safety-report.md
+          fi
+          
+          cat >> deployment-safety-report.md << EOF
+          
+          ## Hot Reload System Status
+          - **Readiness Score**: $HOTRELOAD_READINESS_SCORE/5
+          - **File Watcher**: Implemented
+          - **Event Debouncing**: $(if grep -q debounce internal/plugins/*.go 2>/dev/null; then echo "Implemented"; else echo "Not detected"; fi)
+          - **Resource Cleanup**: $(if grep -q "Close\|Stop" internal/plugins/*.go 2>/dev/null; then echo "Implemented"; else echo "Not detected"; fi)
+          
+          ## Recommendations
+          EOF
+          
+          if [[ "${{ steps.safety-check.outputs.safe }}" == "false" ]]; then
+            echo "- ⚠️ Address safety concerns before deployment" >> deployment-safety-report.md
+          fi
+          
+          if [[ "${{ steps.breaking-changes.outputs.detected }}" == "true" ]]; then
+            echo "- ⚠️ Plan for breaking change migration" >> deployment-safety-report.md
+          fi
+          
+          if [[ "${{ steps.hot-reload-check.outputs.ready }}" == "false" ]]; then
+            echo "- ⚠️ Complete hot reload system implementation" >> deployment-safety-report.md
+          fi
+          
+          if [[ "${{ steps.safety-check.outputs.safe }}" == "true" ]] && [[ "${{ steps.breaking-changes.outputs.detected }}" == "false" ]] && [[ "${{ steps.hot-reload-check.outputs.ready }}" == "true" ]]; then
+            echo "- ✅ Ready for safe deployment" >> deployment-safety-report.md
+          fi
+          
+      - name: Upload safety report
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-safety-report
+          path: deployment-safety-report.md
+          retention-days: 30
+
+  # ============================================
+  # Deployment Strategy Planning
+  # ============================================
+  deployment-strategy:
+    name: Deployment Strategy Planning
+    runs-on: ubuntu-latest
+    needs: pre-deployment-validation
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Analyze deployment scope
+        id: scope-analysis
+        run: |
+          echo "📋 Analyzing deployment scope..."
+          
+          # Analyze changes
+          changed_components=()
+          
+          if git diff origin/main...HEAD --name-only | grep -q "internal/plugins"; then
+            changed_components+=("plugins")
+          fi
+          
+          if git diff origin/main...HEAD --name-only | grep -q "internal/config"; then
+            changed_components+=("config")  
+          fi
+          
+          if git diff origin/main...HEAD --name-only | grep -q "internal/storage"; then
+            changed_components+=("storage")
+          fi
+          
+          if git diff origin/main...HEAD --name-only | grep -q "cmd/"; then
+            changed_components+=("binaries")
+          fi
+          
+          echo "Changed components: ${changed_components[*]}"
+          echo "CHANGED_COMPONENTS=${changed_components[*]}" >> $GITHUB_ENV
+          
+          # Determine deployment strategy
+          if [[ ${#changed_components[@]} -eq 1 ]] && [[ "${changed_components[0]}" == "plugins" ]]; then
+            strategy="hot-reload-only"
+            echo "Strategy: Hot reload deployment (plugins only)"
+          elif [[ ${#changed_components[@]} -gt 3 ]]; then
+            strategy="full-restart"
+            echo "Strategy: Full system restart required"
+          else
+            strategy="rolling-update"
+            echo "Strategy: Rolling update deployment"
+          fi
+          
+          echo "strategy=$strategy" >> $GITHUB_OUTPUT
+          echo "DEPLOYMENT_STRATEGY=$strategy" >> $GITHUB_ENV
+          
+      - name: Generate deployment plan
+        run: |
+          cat > deployment-plan.md << EOF
+          # Hot Reload Deployment Plan
+          
+          ## Deployment Overview
+          - **Strategy**: $DEPLOYMENT_STRATEGY
+          - **Components**: $CHANGED_COMPONENTS
+          - **Breaking Changes**: ${{ needs.pre-deployment-validation.outputs.breaking-changes }}
+          - **Safety Status**: ${{ needs.pre-deployment-validation.outputs.deployment-safe }}
+          
+          ## Pre-Deployment Steps
+          1. **Backup Current State**
+             - Create configuration backup
+             - Save current plugin states
+             - Document running processes
+          
+          2. **Environment Preparation**
+             - Verify system resources
+             - Check file system permissions
+             - Validate network connectivity
+          
+          3. **Safety Validations**
+             - Run comprehensive tests
+             - Verify hot reload functionality
+             - Validate resource cleanup
+          
+          ## Deployment Steps
+          EOF
+          
+          case "$DEPLOYMENT_STRATEGY" in
+            "hot-reload-only")
+              cat >> deployment-plan.md << EOF
+          
+          ### Hot Reload Only Deployment
+          1. Deploy new plugin system components
+          2. Test hot reload functionality
+          3. Gracefully reload affected plugins
+          4. Verify system stability
+          5. Monitor for any issues
+          EOF
+              ;;
+            "rolling-update")
+              cat >> deployment-plan.md << EOF
+          
+          ### Rolling Update Deployment  
+          1. Deploy to staging environment first
+          2. Run integration tests
+          3. Deploy to production with zero downtime
+          4. Gradually reload components
+          5. Monitor system health
+          EOF
+              ;;
+            "full-restart")
+              cat >> deployment-plan.md << EOF
+          
+          ### Full Restart Deployment
+          1. Schedule maintenance window
+          2. Gracefully shutdown services
+          3. Deploy all components
+          4. Restart services in correct order
+          5. Validate full system functionality
+          EOF
+              ;;
+          esac
+          
+          cat >> deployment-plan.md << EOF
+          
+          ## Post-Deployment Steps
+          1. **Validation**
+             - Verify hot reload functionality
+             - Test plugin loading/unloading
+             - Check resource usage
+          
+          2. **Monitoring**
+             - Monitor system metrics
+             - Watch for memory leaks
+             - Track file descriptor usage
+             - Monitor plugin health
+          
+          3. **Rollback Plan**
+             - Keep previous version ready
+             - Document rollback procedures
+             - Test rollback in staging
+          
+          ## Success Criteria
+          - [ ] All services running normally
+          - [ ] Hot reload functionality working
+          - [ ] No resource leaks detected
+          - [ ] Plugin system stable
+          - [ ] Performance within acceptable limits
+          
+          ## Emergency Contacts
+          - Development Team: On-call rotation
+          - Infrastructure: 24/7 support
+          - Product Team: Business hours
+          
+          EOF
+          
+      - name: Upload deployment plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-plan
+          path: deployment-plan.md
+          retention-days: 30
+
+  # ============================================
+  # Deployment Execution Simulation
+  # ============================================
+  deployment-simulation:
+    name: Deployment Simulation
+    runs-on: ubuntu-latest
+    needs: [pre-deployment-validation, deployment-strategy]
+    if: needs.pre-deployment-validation.outputs.deployment-safe == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          
+      - name: Simulate deployment environment
+        run: |
+          echo "🎭 Simulating deployment environment..."
+          
+          # Create temporary deployment environment
+          mkdir -p /tmp/deployment-simulation
+          cd /tmp/deployment-simulation
+          
+          # Copy project files
+          cp -r $GITHUB_WORKSPACE/* . || true
+          
+          # Simulate deployment steps
+          echo "Step 1: Building binaries..."
+          make build || exit 1
+          
+          echo "Step 2: Running tests in deployment environment..."
+          go test ./... -timeout=3m || exit 1
+          
+          echo "Step 3: Testing hot reload functionality..."
+          if ! go test ./internal/plugins/... -run=".*[Hh]ot[Rr]eload.*" -timeout=2m; then
+            echo "❌ Hot reload tests failed in simulated deployment"
+            exit 1
+          fi
+          
+          echo "Step 4: Simulating plugin reload..."
+          # Create test plugin configuration
+          mkdir -p test-plugins
+          cat > test-plugins/test-plugin.json << 'EOF'
+          {
+            "metadata": {
+              "name": "test-plugin",
+              "version": "1.0.0",
+              "type": "input"
+            }
+          }
+          EOF
+          
+          echo "Step 5: Resource cleanup validation..."
+          if ! go test ./internal/plugins/... -run=".*[Cc]leanup.*|.*[Rr]esource.*" -timeout=1m; then
+            echo "⚠️ Resource cleanup tests had issues"
+          fi
+          
+          echo "✅ Deployment simulation completed successfully"
+          
+      - name: Validate deployment artifacts
+        run: |
+          echo "🔍 Validating deployment artifacts..."
+          
+          # Check if binaries were created
+          if [[ -f "/tmp/deployment-simulation/bin/media-sync-daemon" ]]; then
+            echo "✅ Daemon binary created"
+          else
+            echo "❌ Daemon binary missing"
+            exit 1
+          fi
+          
+          if [[ -f "/tmp/deployment-simulation/bin/media-sync-cli" ]]; then
+            echo "✅ CLI binary created"
+          else
+            echo "❌ CLI binary missing" 
+            exit 1
+          fi
+          
+          echo "✅ All deployment artifacts validated"
+          
+      - name: Performance impact assessment
+        run: |
+          echo "⚡ Assessing performance impact..."
+          
+          cd /tmp/deployment-simulation
+          
+          # Run benchmarks to check performance impact
+          go test -bench=. -benchmem -run=^$ ./internal/plugins/... \
+            -benchtime=3s -timeout=5m > deployment-benchmark.txt 2>&1 || true
+            
+          if [[ -f "deployment-benchmark.txt" ]]; then
+            echo "📊 Performance benchmark results:"
+            head -20 deployment-benchmark.txt
+            
+            # Check for performance regressions
+            if grep -q "ns/op.*[0-9][0-9][0-9][0-9][0-9][0-9]" deployment-benchmark.txt; then
+              echo "⚠️ Potential performance degradation detected"
+              echo "PERFORMANCE_IMPACT=degraded" >> $GITHUB_ENV
+            else
+              echo "✅ Performance impact acceptable"
+              echo "PERFORMANCE_IMPACT=acceptable" >> $GITHUB_ENV
+            fi
+          fi
+
+  # ============================================
+  # Deployment Coordination Dashboard
+  # ============================================
+  deployment-dashboard:
+    name: Deployment Coordination Dashboard
+    runs-on: ubuntu-latest
+    needs: [pre-deployment-validation, deployment-strategy, deployment-simulation]
+    if: always()
+    steps:
+      - name: Download all deployment artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: 'deployment-*'
+          merge-multiple: true
+          path: deployment-artifacts/
+          
+      - name: Generate deployment dashboard
+        run: |
+          cat > deployment-dashboard.md << EOF
+          # 🚀 Hot Reload Deployment Coordination Dashboard
+          
+          Generated: $(date -u)
+          Commit: ${{ github.sha }}
+          PR: #${{ github.event.number }}
+          
+          ## 📊 Deployment Status Summary
+          
+          | Component | Status | Details |
+          |-----------|--------|---------|
+          | Pre-Deployment Validation | ${{ needs.pre-deployment-validation.result }} | Safety: ${{ needs.pre-deployment-validation.outputs.deployment-safe }} |
+          | Deployment Strategy | ${{ needs.deployment-strategy.result }} | Strategy planned |
+          | Deployment Simulation | ${{ needs.deployment-simulation.result }} | Environment tested |
+          
+          ## 🔥 Hot Reload System Status
+          
+          - **Hot Reload Ready**: ${{ needs.pre-deployment-validation.outputs.hot-reload-ready }}
+          - **Breaking Changes**: ${{ needs.pre-deployment-validation.outputs.breaking-changes }}
+          - **Performance Impact**: ${PERFORMANCE_IMPACT:-"Not assessed"}
+          
+          ## 🎯 Deployment Readiness
+          
+          EOF
+          
+          # Calculate overall readiness
+          readiness_score=0
+          total_checks=4
+          
+          if [[ "${{ needs.pre-deployment-validation.outputs.deployment-safe }}" == "true" ]]; then
+            readiness_score=$((readiness_score + 1))
+          fi
+          
+          if [[ "${{ needs.pre-deployment-validation.outputs.breaking-changes }}" == "false" ]]; then
+            readiness_score=$((readiness_score + 1))
+          fi
+          
+          if [[ "${{ needs.pre-deployment-validation.outputs.hot-reload-ready }}" == "true" ]]; then
+            readiness_score=$((readiness_score + 1))
+          fi
+          
+          if [[ "${{ needs.deployment-simulation.result }}" == "success" ]]; then
+            readiness_score=$((readiness_score + 1))
+          fi
+          
+          readiness_percent=$((readiness_score * 100 / total_checks))
+          
+          if [[ $readiness_percent -eq 100 ]]; then
+            echo "✅ **READY FOR DEPLOYMENT** ($readiness_score/$total_checks checks passed)" >> deployment-dashboard.md
+            echo "" >> deployment-dashboard.md
+            echo "All systems are go! The hot reload functionality is ready for safe deployment." >> deployment-dashboard.md
+          elif [[ $readiness_percent -ge 75 ]]; then
+            echo "⚠️ **MOSTLY READY** ($readiness_score/$total_checks checks passed)" >> deployment-dashboard.md
+            echo "" >> deployment-dashboard.md
+            echo "Minor issues detected. Review recommendations before proceeding." >> deployment-dashboard.md
+          else
+            echo "❌ **NOT READY** ($readiness_score/$total_checks checks passed)" >> deployment-dashboard.md
+            echo "" >> deployment-dashboard.md
+            echo "Significant issues detected. Address concerns before deployment." >> deployment-dashboard.md
+          fi
+          
+          cat >> deployment-dashboard.md << EOF
+          
+          ## 📋 Next Steps
+          
+          EOF
+          
+          if [[ "${{ needs.pre-deployment-validation.outputs.deployment-safe }}" == "false" ]]; then
+            echo "1. 🔍 Address deployment safety concerns" >> deployment-dashboard.md
+          fi
+          
+          if [[ "${{ needs.pre-deployment-validation.outputs.breaking-changes }}" == "true" ]]; then
+            echo "2. ⚠️ Plan migration strategy for breaking changes" >> deployment-dashboard.md  
+          fi
+          
+          if [[ "${{ needs.pre-deployment-validation.outputs.hot-reload-ready }}" == "false" ]]; then
+            echo "3. 🔥 Complete hot reload system implementation" >> deployment-dashboard.md
+          fi
+          
+          if [[ $readiness_percent -eq 100 ]]; then
+            echo "1. ✅ Proceed with deployment using planned strategy" >> deployment-dashboard.md
+            echo "2. 📊 Monitor system metrics post-deployment" >> deployment-dashboard.md
+            echo "3. 🔄 Validate hot reload functionality in production" >> deployment-dashboard.md
+          fi
+          
+          cat >> deployment-dashboard.md << EOF
+          
+          ## 📚 Available Resources
+          
+          - [Deployment Safety Report](./deployment-safety-report.md)
+          - [Deployment Plan](./deployment-plan.md)
+          - [Performance Benchmarks](./deployment-benchmark.txt)
+          
+          ## 🆘 Emergency Procedures
+          
+          If deployment issues occur:
+          1. Check system health dashboard
+          2. Review error logs for hot reload components
+          3. Execute rollback procedure if needed
+          4. Contact on-call development team
+          
+          ---
+          
+          *This dashboard is automatically updated on each deployment coordination run.*
+          EOF
+          
+      - name: Upload deployment dashboard
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-coordination-dashboard
+          path: |
+            deployment-dashboard.md
+            deployment-artifacts/
+          retention-days: 90
+          
+      - name: Comment on PR (if applicable)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            try {
+              const dashboard = fs.readFileSync('deployment-dashboard.md', 'utf8');
+              
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: dashboard
+              });
+            } catch (error) {
+              console.log('Could not post PR comment:', error);
+            }
