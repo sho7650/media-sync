@@ -35,13 +35,16 @@ type PluginManager struct {
 	configDir     string
 	hotReloadEnabled bool
 	watcherCancel context.CancelFunc
+	reloadManager *ReloadManager
 }
 
 // PluginStatus represents the current status of a plugin
 type PluginStatus struct {
-	State   PluginState `json:"state"`
-	Message string      `json:"message,omitempty"`
-	Error   error       `json:"-"`
+	State   PluginState    `json:"state"`
+	Message string         `json:"message,omitempty"`
+	Error   error          `json:"-"`
+	Config  *PluginConfig  `json:"config,omitempty"`
+	Health  string         `json:"health"`
 }
 
 // Health monitoring types
@@ -122,14 +125,14 @@ func (m *PluginManager) RegisterFactory(pluginType string, factory PluginFactory
 
 // LoadPlugin loads a single plugin with state tracking
 func (m *PluginManager) LoadPlugin(config PluginConfig) error {
-	m.setPluginStatus(config.Name, PluginStateLoading, "Loading plugin", nil)
+	m.setPluginStatusWithConfig(config.Name, PluginStateLoading, "Loading plugin", nil, &config)
 	
 	if err := m.loader.LoadPlugin(config); err != nil {
-		m.setPluginStatus(config.Name, PluginStateError, "Failed to load", err)
+		m.setPluginStatusWithConfig(config.Name, PluginStateError, "Failed to load", err, &config)
 		return err
 	}
 	
-	m.setPluginStatus(config.Name, PluginStateLoaded, "Plugin loaded successfully", nil)
+	m.setPluginStatusWithConfig(config.Name, PluginStateLoaded, "Plugin loaded successfully", nil, &config)
 	return nil
 }
 
@@ -292,11 +295,56 @@ func (m *PluginManager) setPluginStatus(name string, state PluginState, message 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	
-	m.status[name] = PluginStatus{
+	// Preserve existing config if available
+	existing, hasExisting := m.status[name]
+	status := PluginStatus{
 		State:   state,
 		Message: message,
 		Error:   err,
+		Health:  "unknown",
 	}
+	
+	if hasExisting && existing.Config != nil {
+		status.Config = existing.Config
+	}
+	
+	// Update health based on state
+	switch state {
+	case PluginStateRunning:
+		status.Health = "healthy"
+	case PluginStateError:
+		status.Health = "unhealthy"
+	case PluginStateStopped, PluginStateUnloading:
+		status.Health = "stopped"
+	}
+	
+	m.status[name] = status
+}
+
+// setPluginStatusWithConfig sets plugin status with config
+func (m *PluginManager) setPluginStatusWithConfig(name string, state PluginState, message string, err error, config *PluginConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	status := PluginStatus{
+		State:   state,
+		Message: message,
+		Error:   err,
+		Config:  config,
+		Health:  "unknown",
+	}
+	
+	// Update health based on state
+	switch state {
+	case PluginStateRunning:
+		status.Health = "healthy"
+	case PluginStateError:
+		status.Health = "unhealthy"
+	case PluginStateStopped, PluginStateUnloading:
+		status.Health = "stopped"
+	}
+	
+	m.status[name] = status
 }
 
 // StartHealthMonitoring starts the health monitoring system
@@ -587,27 +635,28 @@ func (m *PluginManager) watchConfigFiles(ctx context.Context) {
 func (m *PluginManager) handleConfigChange(configPath string) {
 	pluginName := m.extractPluginName(configPath)
 	
-	// Stop existing plugin if running
-	if err := m.StopPlugin(context.Background(), pluginName); err != nil {
-		log.Printf("Failed to stop plugin %s: %v", pluginName, err)
-	}
-	
-	// Load new config
-	config, err := m.loadPluginConfig(configPath)
+	// Load new configuration
+	newConfig, err := m.loadPluginConfig(configPath)
 	if err != nil {
 		log.Printf("Failed to load config %s: %v", configPath, err)
 		return
 	}
 	
-	// Load and start plugin with new config
-	if err := m.LoadPlugin(*config); err != nil {
-		log.Printf("Failed to reload plugin %s: %v", pluginName, err)
+	// Use ReloadManager for atomic reload with rollback
+	if m.reloadManager == nil {
+		// Initialize reload manager if not already done
+		m.reloadManager = NewReloadManager(m, &ConfigValidatorImpl{})
+	}
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	
+	if err := m.reloadManager.AtomicReload(ctx, pluginName, newConfig); err != nil {
+		log.Printf("Failed to atomically reload plugin %s: %v", pluginName, err)
 		return
 	}
 	
-	if err := m.StartPlugin(context.Background(), pluginName); err != nil {
-		log.Printf("Failed to start plugin %s: %v", pluginName, err)
-	}
+	log.Printf("Successfully reloaded plugin %s with new configuration", pluginName)
 }
 
 // extractPluginName extracts plugin name from config file path
