@@ -45,6 +45,31 @@ func TestPluginManager_LoadAndStartPlugin(t *testing.T) {
 	assert.Equal(t, PluginStateRunning, status.State)
 }
 
+func TestPluginManager_EnableHotReload(t *testing.T) {
+	manager := NewPluginManager()
+	configDir := t.TempDir()
+	
+	err := manager.EnableHotReload(configDir)
+	assert.NoError(t, err)
+	
+	// Verify hot reload is enabled
+	assert.True(t, manager.IsHotReloadEnabled())
+}
+
+func TestPluginManager_DisableHotReload(t *testing.T) {
+	manager := NewPluginManager()
+	configDir := t.TempDir()
+	
+	// Enable first
+	require.NoError(t, manager.EnableHotReload(configDir))
+	assert.True(t, manager.IsHotReloadEnabled())
+	
+	// Then disable
+	err := manager.DisableHotReload()
+	assert.NoError(t, err)
+	assert.False(t, manager.IsHotReloadEnabled())
+}
+
 func TestPluginManager_DiscoverAndLoadPlugins(t *testing.T) {
 	manager := NewPluginManager()
 	
