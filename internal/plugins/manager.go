@@ -23,6 +23,10 @@ type PluginManager struct {
 	healthMonitor   *HealthMonitor
 	lifecycleHooks  map[string][]LifecycleHook
 	resourceTracker *ResourceTracker
+	
+	// Hot reload support
+	fileWatcher FileWatcher
+	hotReloadEnabled bool
 }
 
 // PluginStatus represents the current status of a plugin
@@ -478,4 +482,123 @@ func (m *PluginManager) trackPluginResources(pluginName string, usage ResourceUs
 	defer m.resourceTracker.mu.Unlock()
 	
 	m.resourceTracker.usage[pluginName] = usage
+}
+
+// EnableHotReload enables hot reloading for the given configuration directory
+func (m *PluginManager) EnableHotReload(configDir string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	if m.fileWatcher == nil {
+		m.fileWatcher = NewFileWatcher()
+		m.fileWatcher.SetEventHandler(m.handleConfigFileEvent)
+	}
+	
+	if err := m.fileWatcher.AddWatchPath(configDir); err != nil {
+		return fmt.Errorf("failed to add watch path: %w", err)
+	}
+	
+	if !m.hotReloadEnabled {
+		if err := m.fileWatcher.Start(context.Background()); err != nil {
+			return fmt.Errorf("failed to start file watcher: %w", err)
+		}
+		m.hotReloadEnabled = true
+	}
+	
+	return nil
+}
+
+// DisableHotReload stops hot reloading
+func (m *PluginManager) DisableHotReload() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	if m.fileWatcher != nil && m.hotReloadEnabled {
+		if err := m.fileWatcher.Stop(); err != nil {
+			return fmt.Errorf("failed to stop file watcher: %w", err)
+		}
+		m.hotReloadEnabled = false
+	}
+	
+	return nil
+}
+
+// handleConfigFileEvent processes file system events for hot reload
+func (m *PluginManager) handleConfigFileEvent(event PluginFileEvent) error {
+	if event.ConfigDelta == nil {
+		return nil
+	}
+	
+	pluginName := event.ConfigDelta.PluginName
+	
+	switch event.ConfigDelta.ChangeType {
+	case DeltaTypeCreate:
+		// New plugin configuration detected
+		if event.ConfigDelta.NewConfig != nil {
+			return m.LoadPlugin(*event.ConfigDelta.NewConfig)
+		}
+		
+	case DeltaTypeUpdate:
+		// Plugin configuration updated - reload plugin
+		if event.ConfigDelta.NewConfig != nil {
+			return m.ReloadPlugin(pluginName, *event.ConfigDelta.NewConfig)
+		}
+		
+	case DeltaTypeDelete:
+		// Plugin configuration removed - unload plugin
+		ctx := context.Background()
+		return m.UnloadPlugin(ctx, pluginName)
+	}
+	
+	return nil
+}
+
+// ReloadPlugin reloads a plugin with new configuration (hot reload)
+func (m *PluginManager) ReloadPlugin(name string, newConfig PluginConfig) error {
+	ctx := context.Background()
+	
+	// Get current plugin state
+	status, exists := m.GetPluginStatus(name)
+	if !exists {
+		// Plugin doesn't exist, just load it
+		return m.LoadPlugin(newConfig)
+	}
+	
+	// Only reload if plugin is running
+	if status.State != PluginStateRunning {
+		return fmt.Errorf("plugin %s is not running (state: %s), cannot reload", name, status.State)
+	}
+	
+	// Execute pre-reload hooks
+	if err := m.executeLifecycleHooks(ctx, "pre-reload", name); err != nil {
+		return fmt.Errorf("pre-reload hook failed: %w", err)
+	}
+	
+	// Stop the old plugin gracefully
+	if err := m.StopPlugin(ctx, name); err != nil {
+		return fmt.Errorf("failed to stop plugin for reload: %w", err)
+	}
+	
+	// Unload the old plugin
+	if err := m.UnloadPlugin(ctx, name); err != nil {
+		return fmt.Errorf("failed to unload plugin for reload: %w", err)
+	}
+	
+	// Load the new plugin configuration
+	if err := m.LoadPlugin(newConfig); err != nil {
+		return fmt.Errorf("failed to load new plugin configuration: %w", err)
+	}
+	
+	// Start the new plugin
+	if err := m.StartPlugin(ctx, name); err != nil {
+		return fmt.Errorf("failed to start reloaded plugin: %w", err)
+	}
+	
+	// Execute post-reload hooks
+	if err := m.executeLifecycleHooks(ctx, "post-reload", name); err != nil {
+		// Log but don't fail the reload
+		fmt.Printf("Warning: post-reload hook failed for plugin %s: %v\n", name, err)
+	}
+	
+	return nil
 }

@@ -179,14 +179,14 @@ func TestPluginManager_ResourceCleanupTracking(t *testing.T) {
 	
 	usage, err := manager.GetPluginResourceUsage("resource-plugin")
 	require.NoError(t, err)
-	assert.Greater(t, usage.MemoryBytes, int64(0))
+	assert.Greater(t, usage.MemoryBytes, uint64(0))
 	assert.Greater(t, usage.Connections, 0)
 	
 	require.NoError(t, manager.StopPlugin(ctx, "resource-plugin"))
 	
 	usage, err = manager.GetPluginResourceUsage("resource-plugin")
 	require.NoError(t, err)
-	assert.Equal(t, int64(0), usage.MemoryBytes)
+	assert.Equal(t, uint64(0), usage.MemoryBytes)
 	assert.Equal(t, 0, usage.Connections)
 }
 
@@ -358,7 +358,7 @@ func (f *mockResourceAwarePluginFactory) GetType() string {
 
 type mockResourceAwarePlugin struct {
 	mockPlugin
-	memoryUsage int64
+	memoryUsage uint64
 	connections int
 }
 
