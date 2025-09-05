@@ -3,10 +3,16 @@ package plugins
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/sho7650/media-sync/pkg/core/interfaces"
+	"gopkg.in/yaml.v3"
 )
 
 // PluginManager coordinates plugin lifecycle operations
@@ -23,6 +29,12 @@ type PluginManager struct {
 	healthMonitor   *HealthMonitor
 	lifecycleHooks  map[string][]LifecycleHook
 	resourceTracker *ResourceTracker
+	
+	// Hot reload support
+	configWatcher *fsnotify.Watcher
+	configDir     string
+	hotReloadEnabled bool
+	watcherCancel context.CancelFunc
 }
 
 // PluginStatus represents the current status of a plugin
@@ -478,4 +490,144 @@ func (m *PluginManager) trackPluginResources(pluginName string, usage ResourceUs
 	defer m.resourceTracker.mu.Unlock()
 	
 	m.resourceTracker.usage[pluginName] = usage
+}
+
+// EnableHotReload enables hot reload for plugin configurations
+func (m *PluginManager) EnableHotReload(configDir string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	if m.hotReloadEnabled {
+		return fmt.Errorf("hot reload already enabled")
+	}
+	
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create file watcher: %w", err)
+	}
+	
+	if err := watcher.Add(configDir); err != nil {
+		watcher.Close()
+		return fmt.Errorf("failed to watch directory %s: %w", configDir, err)
+	}
+	
+	m.configWatcher = watcher
+	m.configDir = configDir
+	m.hotReloadEnabled = true
+	
+	// Start watching with cancellable context
+	ctx, cancel := context.WithCancel(context.Background())
+	m.watcherCancel = cancel
+	go m.watchConfigFiles(ctx)
+	return nil
+}
+
+// DisableHotReload disables hot reload
+func (m *PluginManager) DisableHotReload() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	if !m.hotReloadEnabled {
+		return nil
+	}
+	
+	// Cancel the watcher goroutine
+	if m.watcherCancel != nil {
+		m.watcherCancel()
+		m.watcherCancel = nil
+	}
+	
+	if m.configWatcher != nil {
+		m.configWatcher.Close()
+		m.configWatcher = nil
+	}
+	
+	m.hotReloadEnabled = false
+	return nil
+}
+
+// IsHotReloadEnabled returns whether hot reload is enabled
+func (m *PluginManager) IsHotReloadEnabled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.hotReloadEnabled
+}
+
+// watchConfigFiles monitors config file changes
+func (m *PluginManager) watchConfigFiles(ctx context.Context) {
+	m.mu.RLock()
+	watcher := m.configWatcher
+	m.mu.RUnlock()
+	
+	if watcher == nil {
+		return
+	}
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			if strings.HasSuffix(event.Name, ".yaml") || strings.HasSuffix(event.Name, ".yml") {
+				m.handleConfigChange(event.Name)
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			log.Printf("Config watcher error: %v", err)
+		}
+	}
+}
+
+// handleConfigChange processes config file changes
+func (m *PluginManager) handleConfigChange(configPath string) {
+	pluginName := m.extractPluginName(configPath)
+	
+	// Stop existing plugin if running
+	if err := m.StopPlugin(context.Background(), pluginName); err != nil {
+		log.Printf("Failed to stop plugin %s: %v", pluginName, err)
+	}
+	
+	// Load new config
+	config, err := m.loadPluginConfig(configPath)
+	if err != nil {
+		log.Printf("Failed to load config %s: %v", configPath, err)
+		return
+	}
+	
+	// Load and start plugin with new config
+	if err := m.LoadPlugin(*config); err != nil {
+		log.Printf("Failed to reload plugin %s: %v", pluginName, err)
+		return
+	}
+	
+	if err := m.StartPlugin(context.Background(), pluginName); err != nil {
+		log.Printf("Failed to start plugin %s: %v", pluginName, err)
+	}
+}
+
+// extractPluginName extracts plugin name from config file path
+func (m *PluginManager) extractPluginName(configPath string) string {
+	filename := filepath.Base(configPath)
+	ext := filepath.Ext(filename)
+	return strings.TrimSuffix(filename, ext)
+}
+
+// loadPluginConfig loads plugin configuration from file
+func (m *PluginManager) loadPluginConfig(configPath string) (*PluginConfig, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+	
+	var config PluginConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+	
+	return &config, nil
 }
