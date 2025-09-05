@@ -223,19 +223,25 @@ type TestPlugin struct {
 	behavior   PluginBehavior
 	running    bool
 	healthy    bool
+	mu         sync.RWMutex
 }
 
 func (p *TestPlugin) Start(ctx context.Context) error {
 	if p.behavior == BehaviorCrashOnStart {
 		return fmt.Errorf("simulated crash on start")
 	}
+	
+	p.mu.Lock()
 	p.running = true
+	p.mu.Unlock()
 	
 	if p.behavior == BehaviorBecomeUnhealthy {
 		// Become unhealthy after 1 second
 		go func() {
 			time.Sleep(1 * time.Second)
+			p.mu.Lock()
 			p.healthy = false
+			p.mu.Unlock()
 		}()
 	}
 	
@@ -243,12 +249,19 @@ func (p *TestPlugin) Start(ctx context.Context) error {
 }
 
 func (p *TestPlugin) Stop(ctx context.Context) error {
+	p.mu.Lock()
 	p.running = false
+	p.mu.Unlock()
 	return nil
 }
 
 func (p *TestPlugin) Health() interfaces.ServiceHealth {
-	if !p.healthy || !p.running {
+	p.mu.RLock()
+	healthy := p.healthy
+	running := p.running
+	p.mu.RUnlock()
+	
+	if !healthy || !running {
 		return interfaces.ServiceHealth{
 			Status:  interfaces.StatusError,
 			Message: "Plugin is unhealthy",

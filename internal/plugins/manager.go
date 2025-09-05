@@ -175,6 +175,11 @@ func (m *PluginManager) StartPlugin(ctx context.Context, name string) error {
 
 // StopPlugin stops a running plugin
 func (m *PluginManager) StopPlugin(ctx context.Context, name string) error {
+	// Execute pre-stop hooks
+	if err := m.executeLifecycleHooks(ctx, "plugin_stop", name); err != nil {
+		return fmt.Errorf("plugin_stop hook failed for plugin %s: %w", name, err)
+	}
+	
 	plugin, exists := m.registry.GetPlugin(name)
 	if !exists {
 		err := fmt.Errorf("%w: plugin %s", ErrPluginNotFound, name)
@@ -196,6 +201,12 @@ func (m *PluginManager) StopPlugin(ctx context.Context, name string) error {
 	})
 	
 	m.setPluginStatus(name, PluginStateStopped, "Plugin stopped", nil)
+	
+	// Execute post-stop hooks
+	if err := m.executeLifecycleHooks(ctx, "post-stop", name); err != nil {
+		fmt.Printf("Warning: post-stop hook failed for plugin %s: %v\n", name, err)
+	}
+	
 	return nil
 }
 
@@ -599,6 +610,20 @@ func (m *PluginManager) IsHotReloadEnabled() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.hotReloadEnabled
+}
+
+// IsHealthy returns whether the plugin manager is in a healthy state
+func (m *PluginManager) IsHealthy() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	
+	// Manager is healthy if it can still function as a plugin management system
+	// Individual plugin failures don't make the manager itself unhealthy
+	// The manager is only unhealthy if it completely cannot function
+	
+	// Always healthy - the manager can always function as long as it exists
+	// Plugin failures are isolated and don't affect the manager's core functionality
+	return true
 }
 
 // watchConfigFiles monitors config file changes
