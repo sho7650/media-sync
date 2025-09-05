@@ -88,6 +88,10 @@ func TestHotReloadWatcher_PluginReloadIntegration(t *testing.T) {
 	mockManager := &MockPluginManager{}
 	
 	// Setup expectations
+	mockManager.On("GetPluginStatus", "test-plugin").Return(PluginStatus{
+		State: PluginStateRunning,
+	}, true)
+	mockManager.On("StopPlugin", mock.Anything, "test-plugin").Return(nil)
 	mockManager.On("UnloadPlugin", mock.Anything, "test-plugin").Return(nil)
 	mockManager.On("LoadPlugin", mock.MatchedBy(func(config PluginConfig) bool {
 		return config.Name == "test-plugin" && config.Version == "1.0.1"
@@ -95,7 +99,7 @@ func TestHotReloadWatcher_PluginReloadIntegration(t *testing.T) {
 	mockManager.On("StartPlugin", mock.Anything, "test-plugin").Return(nil)
 
 	// Create hot reload system with mock manager  
-	reloader := NewPluginReloaderImpl(&PluginManager{})
+	reloader := NewPluginReloaderImpl(mockManager)
 	watcher := NewHotReloadWatcher()
 	hotReload := NewHotReloadSystem(watcher, reloader)
 	

@@ -2,6 +2,7 @@
 # Optimized for parallel development and high code quality
 
 run:
+  go: "1.25"
   timeout: 10m
   tests: true
   build-tags:

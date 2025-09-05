@@ -242,18 +242,7 @@ func TestPluginManager_ConcurrentLifecycleOperations(t *testing.T) {
 	}
 }
 
-type HealthEvent struct {
-	PluginName             string
-	Health                 interfaces.ServiceHealth
-	AutoRecoveryAttempted  bool
-	RecoverySuccess        bool
-}
-
-type ResourceUsage struct {
-	MemoryBytes   int64
-	Connections   int
-	FileHandles   int
-}
+// HealthEvent and ResourceUsage are now defined in types.go
 
 type mockHealthAwarePluginFactory struct {
 	shouldFail bool
