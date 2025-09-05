@@ -509,7 +509,7 @@ func (vm *FileSystemVersionManager) SaveVersion(pluginName string, config *Plugi
 	
 	// Update current symlink
 	currentLink := filepath.Join(pluginDir, "current")
-	os.Remove(currentLink) // Remove old link if exists
+	_ = os.Remove(currentLink) // Remove old link if exists (ignore error)
 	if err := os.Symlink(versionFile, currentLink); err != nil {
 		log.Printf("Failed to create current symlink: %v", err)
 	}
@@ -615,7 +615,7 @@ func (vm *FileSystemVersionManager) updateVersionIndex(pluginName string, versio
 	// Read existing versions
 	var versions []ConfigVersion
 	if data, err := os.ReadFile(indexFile); err == nil {
-		json.Unmarshal(data, &versions)
+		_ = json.Unmarshal(data, &versions) // Ignore unmarshal errors for corrupted files
 	}
 	
 	// Add new version
@@ -631,10 +631,26 @@ func (vm *FileSystemVersionManager) updateVersionIndex(pluginName string, versio
 }
 
 func (vm *FileSystemVersionManager) pruneOldVersionsForPlugin(pluginName string) error {
-	versions, err := vm.ListVersions(pluginName, 0)
+	// Avoid deadlock by not calling ListVersions while holding the lock
+	// Read the versions file directly
+	indexFile := filepath.Join(vm.baseDir, pluginName, "versions.json")
+	data, err := os.ReadFile(indexFile)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // No versions to prune
+		}
 		return err
 	}
+	
+	var versions []ConfigVersion
+	if err := json.Unmarshal(data, &versions); err != nil {
+		return err
+	}
+	
+	// Sort by timestamp descending
+	sort.Slice(versions, func(i, j int) bool {
+		return versions[i].Timestamp.After(versions[j].Timestamp)
+	})
 	
 	if len(versions) <= vm.maxVersions {
 		return nil
@@ -648,14 +664,13 @@ func (vm *FileSystemVersionManager) pruneOldVersionsForPlugin(pluginName string)
 		}
 	}
 	
-	// Update index
+	// Update index with pruned list
 	versions = versions[:vm.maxVersions]
-	data, err := json.MarshalIndent(versions, "", "  ")
+	data, err = json.MarshalIndent(versions, "", "  ")
 	if err != nil {
 		return err
 	}
 	
-	indexFile := filepath.Join(vm.baseDir, pluginName, "versions.json")
 	return os.WriteFile(indexFile, data, 0644)
 }
 
