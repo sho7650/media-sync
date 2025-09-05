@@ -7,6 +7,9 @@
 *.dll
 *.so
 *.dylib
+cli
+daemon
+bin/
 
 # Test binary, built with `go test -c`
 *.test
@@ -33,3 +36,6 @@ go.work.sum
 
 # serena mcp
 .serena/
+
+#
+_backup/

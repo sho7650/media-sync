@@ -20,7 +20,7 @@ test-unit:
 	go test ./pkg/... -v -race -coverprofile=coverage.out
 
 test-integration:
-	go test ./tests/integration/... -v
+	go test ./... -v -race -tags=integration
 
 # Code quality
 lint:

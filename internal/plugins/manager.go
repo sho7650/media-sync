@@ -49,6 +49,28 @@ type ResourceTracker struct {
 	mu    sync.RWMutex
 }
 
+// HealthEvent represents a health monitoring event
+type HealthEvent struct {
+	PluginName            string                  `json:"plugin_name"`
+	Status                interfaces.HealthStatus `json:"status"`
+	Message               string                  `json:"message"`
+	Timestamp             time.Time               `json:"timestamp"`
+	Details               map[string]interface{}  `json:"details,omitempty"`
+	AutoRecover           bool                    `json:"auto_recover"`
+	Health                interfaces.ServiceHealth `json:"health"`
+	AutoRecoveryAttempted bool                    `json:"auto_recovery_attempted"`
+	RecoverySuccess       bool                    `json:"recovery_success"`
+}
+
+// ResourceUsage tracks plugin resource consumption
+type ResourceUsage struct {
+	MemoryBytes   uint64    `json:"memory_bytes"`
+	CPU           float64   `json:"cpu_percent"`
+	Goroutines    int       `json:"goroutines"`
+	Connections   int       `json:"connections"`
+	LastUpdated   time.Time `json:"last_updated"`
+}
+
 // PluginState represents plugin lifecycle states
 type PluginState string
 
