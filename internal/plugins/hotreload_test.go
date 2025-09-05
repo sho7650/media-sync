@@ -94,8 +94,8 @@ func TestHotReloadWatcher_PluginReloadIntegration(t *testing.T) {
 	})).Return(nil)
 	mockManager.On("StartPlugin", mock.Anything, "test-plugin").Return(nil)
 
-	// Create hot reload system with mock manager
-	reloader := NewPluginReloaderImpl(mockManager)
+	// Create hot reload system with mock manager  
+	reloader := NewPluginReloaderImpl(&PluginManager{})
 	watcher := NewHotReloadWatcher()
 	hotReload := NewHotReloadSystem(watcher, reloader)
 	
@@ -469,114 +469,8 @@ func (m *MockPluginManager) GetPluginStatus(name string) (PluginStatus, bool) {
 	return args.Get(0).(PluginStatus), args.Bool(1)
 }
 
-// INTERFACES that will be implemented in the GREEN phase
+// INTERFACES and TYPES are now defined in hotreload.go
 
-// FileWatcher defines the interface for file system watching
-type FileWatcher interface {
-	Watch(ctx context.Context, path string, eventChan chan<- FileEvent) error
-	Stop() error
-	IsWatching() bool
-	SetDebounceInterval(duration time.Duration)
-}
+// HotReloadMetrics is now defined in hotreload.go
 
-// PluginReloaderService defines the interface for plugin reloading operations
-type PluginReloaderService interface {
-	ReloadPlugin(ctx context.Context, config PluginConfig) error
-	CanReload(pluginName string) bool
-}
-
-// HotReloadSystem combines watching and reloading functionality
-type HotReloadSystem interface {
-	StartWatching(ctx context.Context, pluginDir string) error
-	Shutdown(ctx context.Context) error
-	GetMetrics() HotReloadMetrics
-}
-
-// DATA TYPES for hot reload functionality
-
-// FileEventType represents the type of file system event
-type FileEventType int
-
-const (
-	FileEventCreated FileEventType = iota
-	FileEventModified
-	FileEventDeleted
-	FileEventRenamed
-)
-
-// FileEvent represents a file system event
-type FileEvent struct {
-	Type      FileEventType
-	Path      string
-	Timestamp time.Time
-}
-
-func (e FileEvent) IsPluginFile() bool {
-	return filepath.Ext(e.Path) == ".json"
-}
-
-// HotReloadMetrics tracks performance and operational metrics
-type HotReloadMetrics struct {
-	ReloadCount        uint64
-	ErrorCount         uint64
-	EventsProcessed    uint64
-	AverageReloadTime  time.Duration
-	LastReloadTime     time.Time
-	DebounceHitCount   uint64
-}
-
-// CONSTRUCTOR FUNCTIONS that will be implemented
-
-func NewHotReloadWatcher() *HotReloadWatcher {
-	// Will be implemented in GREEN phase
-	return nil
-}
-
-func NewPluginReloaderImpl(manager *MockPluginManager) PluginReloaderService {
-	// Will be implemented in GREEN phase
-	return nil
-}
-
-func NewHotReloadSystem(watcher FileWatcher, reloader PluginReloaderService) HotReloadSystem {
-	// Will be implemented in GREEN phase
-	return nil
-}
-
-// CONCRETE TYPES that will be implemented
-
-type HotReloadWatcher struct {
-	// Will be implemented in GREEN phase
-}
-
-func (w *HotReloadWatcher) Watch(ctx context.Context, path string, eventChan chan<- FileEvent) error {
-	// Will be implemented in GREEN phase
-	return nil
-}
-
-func (w *HotReloadWatcher) Stop() error {
-	// Will be implemented in GREEN phase
-	return nil
-}
-
-func (w *HotReloadWatcher) IsWatching() bool {
-	// Will be implemented in GREEN phase
-	return false
-}
-
-func (w *HotReloadWatcher) SetDebounceInterval(duration time.Duration) {
-	// Will be implemented in GREEN phase
-}
-
-type PluginReloaderImpl struct {
-	// Will be implemented in GREEN phase
-}
-
-func (r *PluginReloaderImpl) ReloadPlugin(ctx context.Context, config PluginConfig) error {
-	// Will be implemented in GREEN phase
-	return nil
-}
-
-func (r *PluginReloaderImpl) CanReload(pluginName string) bool {
-	// Will be implemented in GREEN phase
-	return false
-}
+// IMPLEMENTATION moved to hotreload.go - tests can now use actual implementation
