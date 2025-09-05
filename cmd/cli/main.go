@@ -159,10 +159,23 @@ func runHealthCheck() {
 	defer cancel()
 	
 	fmt.Println("\n🔄 Testing health monitoring (3s demo)...")
-	go manager.StartHealthMonitoring(1 * time.Second)
+	healthChan := make(chan plugins.HealthEvent, 10)
+	go func() {
+		for event := range healthChan {
+			fmt.Printf("  📊 Health: %s - %s\n", event.PluginName, event.Health.Status)
+		}
+	}()
+	
+	err := manager.StartHealthMonitoring(ctx, healthChan, 1*time.Second)
+	if err != nil {
+		fmt.Printf("⚠️ Failed to start health monitoring: %v\n", err)
+	}
 	
 	<-ctx.Done()
-	manager.StopHealthMonitoring()
+	if err := manager.StopHealthMonitoring(); err != nil {
+		fmt.Printf("⚠️ Failed to stop health monitoring: %v\n", err)
+	}
+	close(healthChan)
 	fmt.Println("✅ Health monitoring test completed")
 }
 

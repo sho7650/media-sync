@@ -37,28 +37,37 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Create health event channel for monitoring
+	healthChan := make(chan plugins.HealthEvent, 100)
+	go func() {
+		for event := range healthChan {
+			if event.AutoRecoveryAttempted {
+				log.Printf("🔄 Auto-recovery for plugin '%s': success=%v", event.PluginName, event.RecoverySuccess)
+			}
+			if event.Health.Status != interfaces.StatusHealthy {
+				log.Printf("⚠️ Plugin '%s' health: %s - %s", event.PluginName, event.Health.Status, event.Health.Message)
+			}
+		}
+	}()
+
 	// Start plugin health monitoring
 	go func() {
 		log.Println("🔍 Starting plugin health monitoring...")
-		pluginManager.StartHealthMonitoringWithRecovery(30*time.Second, true)
+		if err := pluginManager.StartHealthMonitoringWithRecovery(ctx, healthChan, 30*time.Second); err != nil {
+			log.Printf("❌ Failed to start health monitoring: %v", err)
+		}
 	}()
 
 	// Register lifecycle hooks (Phase 2.2.1 feature)
-	err := pluginManager.RegisterLifecycleHook("plugin_start", func(ctx context.Context, pluginName string) error {
+	pluginManager.RegisterLifecycleHook("plugin_start", func(ctx context.Context, pluginName string) error {
 		log.Printf("🔌 Plugin '%s' started successfully", pluginName)
 		return nil
 	})
-	if err != nil {
-		log.Printf("⚠️  Failed to register lifecycle hook: %v", err)
-	}
 
-	err = pluginManager.RegisterLifecycleHook("plugin_error", func(ctx context.Context, pluginName string) error {
+	pluginManager.RegisterLifecycleHook("plugin_error", func(ctx context.Context, pluginName string) error {
 		log.Printf("🔥 Plugin '%s' encountered an error, attempting recovery", pluginName)
 		return nil
 	})
-	if err != nil {
-		log.Printf("⚠️  Failed to register error hook: %v", err)
-	}
 
 	fmt.Println("🎯 Phase 2.2.1 Features Initialized:")
 	fmt.Println("  • Plugin lifecycle management")
@@ -119,10 +128,12 @@ func main() {
 	defer shutdownCancel()
 
 	log.Println("🛑 Stopping plugin health monitoring...")
-	pluginManager.StopHealthMonitoring()
+	if err := pluginManager.StopHealthMonitoring(); err != nil {
+		log.Printf("⚠️ Failed to stop health monitoring: %v", err)
+	}
 
 	log.Println("🔌 Shutting down plugin manager...")
-	if err := pluginManager.GracefulShutdown(shutdownCtx); err != nil {
+	if err := pluginManager.GracefulShutdown(shutdownCtx, 30*time.Second); err != nil {
 		log.Printf("⚠️  Plugin manager shutdown warning: %v", err)
 	}
 
